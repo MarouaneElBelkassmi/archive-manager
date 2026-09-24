@@ -137,8 +137,13 @@ class ArchiveHandler(FileSystemEventHandler):
 
             if is_archive(path):
                 return
+            
+            # To decompress
         elif str(path).startswith(str(TO_DECOMPRESS)):
             root = TO_DECOMPRESS
+            # Only decompress archive files
+            if not is_archive(path):
+                return
         else:
             return
         
@@ -149,7 +154,7 @@ class ArchiveHandler(FileSystemEventHandler):
         
         #don't put archives from ToDecompress into the queue
 
-        if root == TO_DECOMPRESS and is_archive(top_level):
+        if root == TO_DECOMPRESS and not is_archive(top_level):
             return
         
         with activity_lock:
@@ -238,84 +243,19 @@ def activity_checker():
 # ==================================================
 
 def processing_worker():
-
     while True:
-
         path = processing_queue.get()
 
         try:
-
             print(f"\n[QUEUE] Processing: {path}")
 
-            # ======================================
-            # ONLY PROCESS ITEMS IN ToCompress
-            # ======================================
-
             if path.parent == TO_COMPRESS:
-
-                archive_path = compress_item(path)
-
-                if archive_path:
-
-                    # ==================================
-                    # VERIFY
-                    # ==================================
-
-                    if verify_archive(archive_path):
-
-                        print(
-                            f"[SUCCESS] Verified: "
-                            f"{archive_path.name}"
-                        )
-
-                        # ==================================
-                        # DELETE ORIGINAL
-                        # ==================================
-
-                        print(
-                            f"[DELETE] Removing original: "
-                            f"{path.name}"
-                        )
-
-                        if path.is_dir():
-
-                            import shutil
-
-                            shutil.rmtree(path)
-
-                        else:
-
-                            path.unlink()
-
-                        print("[DONE] Original removed.")
-
-                    else:
-
-                        print(
-                            "[SAFETY] Archive is invalid."
-                        )
-
-                        print(
-                            "[SAFETY] Original was NOT deleted."
-                        )
-
-            # ======================================
-            # DECOMPRESSION WILL COME NEXT
-            # ======================================
+                compress_item(path)
 
             elif path.parent == TO_DECOMPRESS:
-
-                print(
-                    "[INFO] Decompression will be "
-                    "implemented next."
-                )
-
-        except Exception as error:
-
-            print(f"[ERROR] {error}")
+                decompress_item(path)
 
         finally:
-
             processing_queue.task_done()
 
 
@@ -355,8 +295,43 @@ def compress_item(path):
     print(f"[COMPRESSED] {path.name} -> {archive_path.name}")
     return True
 
+def decompress_item(archive_path):
+    # Only process supported archives
+    if not is_archive(archive_path):
+        print(f"[INFO] Not a supported archive: {archive_path.name}")
+        return False
     
-# ==================================================
+    # The extracted folder/file will use the archive name
+    # Example: MyGame.7z -> MyGame/
+    output_path = archive_path.parent / archive_path.stem
+
+    if output_path.exists():
+        print(f"[INFO] Output already exists: {output_path.name}")
+        return False
+    
+    command = [
+        str(SEVEN_ZIP),
+        "x",  # Extract
+        str(archive_path),
+        f"-o{output_path}",  # Output directory
+        "-y"  # Assume Yes on all queries
+    ]
+    print(f"\n[DECOMPRESS] {archive_path.name}")
+
+    result = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,)
+    if result.returncode != 0:
+        print(f"[ERROR] Decompression failed: {archive_path.name}")
+        print(result.stderr)
+        return False
+
+    print(f"[OK] Decompression completed: {output_path.name}")
+    return True
+# =====================
+# =============================
 # START WATCHER
 # ==================================================
 
