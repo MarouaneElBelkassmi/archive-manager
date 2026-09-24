@@ -359,40 +359,150 @@ def verify_archive(archive_path):
     return False
 
 def decompress_item(archive_path):
+
     # Only process supported archives
     if not is_archive(archive_path):
         print(f"[INFO] Not a supported archive: {archive_path.name}")
         return False
-    
-    # The extracted folder/file will use the archive name
-    # Example: MyGame.7z -> MyGame/
+
     output_path = archive_path.parent / archive_path.stem
 
     if output_path.exists():
         print(f"[INFO] Output already exists: {output_path.name}")
         return False
-    
+
+    # Temporary extraction directory
+    temp_path = archive_path.parent / f".{archive_path.stem}_extracting"
+
+    if temp_path.exists():
+        print(f"[INFO] Temporary directory already exists: {temp_path.name}")
+        return False
+
     command = [
         str(SEVEN_ZIP),
-        "x",  # Extract
+        "x",
         str(archive_path),
-        f"-o{output_path}",  # Output directory
-        "-y"  # Assume Yes on all queries
+        f"-o{temp_path}",
+        "-y"
     ]
+
     print(f"\n[DECOMPRESS] {archive_path.name}")
 
     result = subprocess.run(
         command,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,)
+        text=True
+    )
+
+    # --------------------------------
+    # Extraction failed
+    # --------------------------------
+
     if result.returncode != 0:
-        print(f"[ERROR] Decompression failed: {archive_path.name}")
+
+        print(
+            f"[ERROR] Decompression failed: "
+            f"{archive_path.name}"
+        )
+
         print(result.stderr)
+
+        # Remove incomplete extraction
+        if temp_path.exists():
+            shutil.rmtree(temp_path, ignore_errors=True)
+
         return False
 
-    print(f"[OK] Decompression completed: {output_path.name}")
+    print("[EXTRACTED] Temporary extraction completed")
+
+    # --------------------------------
+    # Verify extraction
+    # --------------------------------
+
+    if not verify_extraction(temp_path):
+
+        print(
+            "[ERROR] Extraction verification failed."
+        )
+
+        shutil.rmtree(temp_path, ignore_errors=True)
+
+        return False
+
+    print("[VERIFIED] Extraction looks valid")
+
+    # --------------------------------
+    # Move extraction to final location
+    # --------------------------------
+
+    try:
+
+        temp_path.rename(output_path)
+
+    except Exception as e:
+
+        print(
+            f"[ERROR] Could not move extracted data: {e}"
+        )
+
+        shutil.rmtree(temp_path, ignore_errors=True)
+
+        return False
+
+    # --------------------------------
+    # Delete archive
+    # --------------------------------
+
+    try:
+
+        archive_path.unlink()
+
+        print(
+            f"[DELETED] Archive removed: "
+            f"{archive_path.name}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"[WARNING] Extraction succeeded, "
+            f"but archive could not be deleted:"
+        )
+
+        print(e)
+
+    print(
+        f"[OK] Decompression completed: "
+        f"{output_path.name}"
+    )
+
     return True
+
+def verify_extraction(extracted_path):
+    """
+    Verify that the extracted result exists
+    and contains something.
+    """
+
+    if not extracted_path.exists():
+        print(f"[ERROR] Extraction result does not exist: {extracted_path}")
+        return False
+
+    if extracted_path.is_dir():
+        try:
+            next(extracted_path.iterdir())
+            return True
+        except StopIteration:
+            print(f"[ERROR] Extracted directory is empty: {extracted_path}")
+            return False
+
+    # For a single extracted file
+    if extracted_path.is_file():
+        return extracted_path.stat().st_size > 0
+
+    return False
+
 # =====================
 # =============================
 # START WATCHER
