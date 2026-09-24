@@ -3,6 +3,7 @@ import threading
 import queue
 from pathlib import Path
 import subprocess
+import shutil
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -266,24 +267,25 @@ def compress_item(path):
     if is_archive(path):
         print(f"[INFO] Skipping archive: {path.name}")
         return False
-    archive_path= path.parent / f"{path.name}.7z"
+
+    archive_path = path.parent / f"{path.name}.7z"
 
     if archive_path.exists():
         print(f"[INFO] Archive already exists: {archive_path.name}")
         return False
-    
+
     command = [
         str(SEVEN_ZIP),
-        "a",  # Add to archive
+        "a",
         "-t7z",
-        f"-mx={COMPRESSION_LEVEL}",  # Compression level
+        f"-mx={COMPRESSION_LEVEL}",
         str(archive_path),
         path.name
     ]
 
     result = subprocess.run(
         command,
-        cwd = path.parent,
+        cwd=path.parent,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True
@@ -292,8 +294,69 @@ def compress_item(path):
     if result.returncode != 0:
         print(f"[ERROR] Compression failed: {result.stderr}")
         return False
+
     print(f"[COMPRESSED] {path.name} -> {archive_path.name}")
-    return True
+
+    # ==============================
+    # VERIFY ARCHIVE
+    # ==============================
+
+    if not verify_archive(archive_path):
+        print(
+            f"[WARNING] Keeping original because "
+            f"archive verification failed."
+        )
+        return False
+
+    # ==============================
+    # DELETE ORIGINAL
+    # ==============================
+
+    try:
+
+        if path.is_dir():
+            import shutil
+            shutil.rmtree(path)
+
+        else:
+            path.unlink()
+
+        print(f"[DELETED] Original removed: {path.name}")
+        return True
+
+    except Exception as e:
+
+        print(f"[ERROR] Could not delete original: {path}")
+        print(e)
+
+        return False
+
+def verify_archive(archive_path):
+    print(f"[VERIFY] Checking archive: {archive_path.name}")
+
+    command = [
+        str(SEVEN_ZIP),
+        "t",
+        str(archive_path),
+    ]
+
+    result = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    if result.returncode == 0:
+        print(f"[VERIFIED] Archive is valid: {archive_path.name}")
+        return True
+
+    print(f"[ERROR] Archive verification failed: {archive_path.name}")
+
+    if result.stderr:
+        print(result.stderr)
+
+    return False
 
 def decompress_item(archive_path):
     # Only process supported archives
