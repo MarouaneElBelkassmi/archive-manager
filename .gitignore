@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Runtime folders
+ToCompress/*
+ToDecompress/*
+
+# Keep the directories in Git
+!ToCompress/.gitkeep
+!ToDecompress/.gitkeep
+
+# Logs
+*.log
+
+# Archives created during testing
+*.7z
+*.zip
+
+# OS files
+.DS_Store
+Thumbs.db
