@@ -76,6 +76,19 @@ activity_lock = threading.Lock()
 # ==================================================
 # FIND TOP-LEVEL ITEM
 # ==================================================
+ARCHIVE_EXTENSIONS = {
+    ".7z",
+    ".zip",
+    ".rar",
+    ".tar",
+    ".gz",
+    ".bz2",
+    ".xz",
+}
+
+def is_archive(path):
+    return path.is_file() and path.suffix.lower() in ARCHIVE_EXTENSIONS
+
 
 def get_top_level_item(path, root):
     """
@@ -115,48 +128,36 @@ def get_top_level_item(path, root):
 class ArchiveHandler(FileSystemEventHandler):
 
     def handle_event(self, event):
-
-        path = Path(event.src_path)
-
-        # ------------------------------------------
-        # Determine which root folder this belongs to
-        # ------------------------------------------
+        path=Path(event.src_path)
 
         if str(path).startswith(str(TO_COMPRESS)):
-
             root = TO_COMPRESS
 
+            # Dont compress existing archives
+
+            if is_archive(path):
+                return
         elif str(path).startswith(str(TO_DECOMPRESS)):
-
             root = TO_DECOMPRESS
-
         else:
-
             return
-
-        # ------------------------------------------
-        # Find the item directly inside the root
-        # ------------------------------------------
-
-        top_level = get_top_level_item(path, root)
-
-        if top_level is None:
+        
+        top_level =  get_top_level_item(path, root)
+        
+        if top_level is None or top_level == root:
             return
+        
+        #don't put archives from ToDecompress into the queue
 
-        # ------------------------------------------
-        # Ignore the root itself
-        # ------------------------------------------
-
-        if top_level == root:
+        if root == TO_DECOMPRESS and is_archive(top_level):
             return
-
-        # ------------------------------------------
-        # Update activity timestamp
-        # ------------------------------------------
-
+        
         with activity_lock:
-
             last_activity[str(top_level)] = time.time()
+
+
+
+    
 
     def on_created(self, event):
 
@@ -320,107 +321,41 @@ def processing_worker():
 
 # COMPRESSING FUNCTION
 def compress_item(path):
-    """
-    Compress a file or folder using 7-Zip.
-    """
 
-    archive_path = path.parent / f"{path.name}.7z"
+    # Never compress an archive
+    if is_archive(path):
+        print(f"[INFO] Skipping archive: {path.name}")
+        return False
+    archive_path= path.parent / f"{path.name}.7z"
 
-    print()
-    print("====================================")
-    print(f"Compressing: {path.name}")
-    print(f"Archive:     {archive_path.name}")
-    print("====================================")
-
-    # ------------------------------------------
-    # Build the input path
-    # ------------------------------------------
-
-    if path.is_dir():
-
-        # Add everything inside the folder
-        source = str(path / "*")
-
-    else:
-
-        # Normal file
-        source = str(path)
-
-    # ------------------------------------------
-    # 7-Zip command
-    # ------------------------------------------
-
+    if archive_path.exists():
+        print(f"[INFO] Archive already exists: {archive_path.name}")
+        return False
+    
     command = [
         str(SEVEN_ZIP),
-        "a",
+        "a",  # Add to archive
         "-t7z",
-        f"-mx={COMPRESSION_LEVEL}",
+        f"-mx={COMPRESSION_LEVEL}",  # Compression level
         str(archive_path),
-        source
+        path.name
     ]
-
-    print("[7-Zip] Starting compression...")
 
     result = subprocess.run(
         command,
+        cwd = path.parent,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True
     )
-
-    # ------------------------------------------
-    # Check result
-    # ------------------------------------------
 
     if result.returncode != 0:
+        print(f"[ERROR] Compression failed: {result.stderr}")
+        return False
+    print(f"[COMPRESSED] {path.name} -> {archive_path.name}")
+    return True
 
-        print("[ERROR] Compression failed!")
-
-        print(result.stdout)
-        print(result.stderr)
-
-        if archive_path.exists():
-            archive_path.unlink()
-
-        return None
-
-    print("[7-Zip] Compression completed.")
-
-    return archive_path
-
-
-def verify_archive(archive_path):
-    """
-    Verify that the 7z archive is readable and
-    passes 7-Zip's integrity test.
-    """
-
-    print(f"[VERIFY] Checking {archive_path.name}...")
-
-    command = [
-        str(SEVEN_ZIP),
-        "t",
-        str(archive_path)
-    ]
-
-    result = subprocess.run(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
-
-    if result.returncode == 0:
-
-        print("[VERIFY] Archive is valid.")
-
-        return True
-
-    print("[VERIFY] Archive verification FAILED.")
-
-    print(result.stderr)
-
-    return False
+    
 # ==================================================
 # START WATCHER
 # ==================================================
