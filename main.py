@@ -86,7 +86,29 @@ ARCHIVE_EXTENSIONS = {
     ".bz2",
     ".xz",
 }
+def get_archive_contents(archive_path):
 
+    command = [
+        str(SEVEN_ZIP),
+        "l",
+        str(archive_path),
+    ]
+
+    result = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+
+    if result.returncode != 0:
+        print(
+            f"[ERROR] Could not inspect archive: "
+            f"{archive_path.name}"
+        )
+        return None
+
+    return result.stdout
 def is_archive(path):
     return path.is_file() and path.suffix.lower() in ARCHIVE_EXTENSIONS
 
@@ -360,23 +382,42 @@ def verify_archive(archive_path):
 
 def decompress_item(archive_path):
 
-    # Only process supported archives
+    # ==================================================
+    # CHECK ARCHIVE
+    # ==================================================
+
     if not is_archive(archive_path):
         print(f"[INFO] Not a supported archive: {archive_path.name}")
         return False
 
-    output_path = archive_path.parent / archive_path.stem
+    # ==================================================
+    # PATHS
+    # ==================================================
 
-    if output_path.exists():
-        print(f"[INFO] Output already exists: {output_path.name}")
-        return False
+    output_path = archive_path.parent / archive_path.stem
 
     # Temporary extraction directory
     temp_path = archive_path.parent / f".{archive_path.stem}_extracting"
 
-    if temp_path.exists():
-        print(f"[INFO] Temporary directory already exists: {temp_path.name}")
+    # Don't overwrite an existing destination
+    if output_path.exists():
+        print(
+            f"[INFO] Output already exists: "
+            f"{output_path.name}"
+        )
         return False
+
+    # Don't start if an old temporary directory exists
+    if temp_path.exists():
+        print(
+            f"[INFO] Temporary directory already exists: "
+            f"{temp_path.name}"
+        )
+        return False
+
+    # ==================================================
+    # EXTRACT
+    # ==================================================
 
     command = [
         str(SEVEN_ZIP),
@@ -395,9 +436,9 @@ def decompress_item(archive_path):
         text=True
     )
 
-    # --------------------------------
-    # Extraction failed
-    # --------------------------------
+    # ==================================================
+    # CHECK EXTRACTION RESULT
+    # ==================================================
 
     if result.returncode != 0:
 
@@ -406,19 +447,23 @@ def decompress_item(archive_path):
             f"{archive_path.name}"
         )
 
-        print(result.stderr)
+        if result.stderr:
+            print(result.stderr)
 
         # Remove incomplete extraction
         if temp_path.exists():
-            shutil.rmtree(temp_path, ignore_errors=True)
+            shutil.rmtree(
+                temp_path,
+                ignore_errors=True
+            )
 
         return False
 
     print("[EXTRACTED] Temporary extraction completed")
 
-    # --------------------------------
-    # Verify extraction
-    # --------------------------------
+    # ==================================================
+    # VERIFY EXTRACTION
+    # ==================================================
 
     if not verify_extraction(temp_path):
 
@@ -426,33 +471,125 @@ def decompress_item(archive_path):
             "[ERROR] Extraction verification failed."
         )
 
-        shutil.rmtree(temp_path, ignore_errors=True)
+        shutil.rmtree(
+            temp_path,
+            ignore_errors=True
+        )
 
         return False
 
     print("[VERIFIED] Extraction looks valid")
 
-    # --------------------------------
-    # Move extraction to final location
-    # --------------------------------
+    # ==================================================
+    # DETERMINE FINAL PATH
+    # ==================================================
 
     try:
 
-        temp_path.rename(output_path)
+        items = list(temp_path.iterdir())
+
+        if len(items) == 1:
+
+            # Example:
+            #
+            # .MyGame_extracting/
+            #     MyGame/
+            #
+            # becomes:
+            #
+            # ToDecompress/
+            #     MyGame/
+
+            extracted_item = items[0]
+
+            final_path = archive_path.parent / extracted_item.name
+
+        else:
+
+            # Multiple top-level items
+            #
+            # Keep them together inside a folder
+            # named after the archive.
+
+            final_path = output_path
+
+        # Safety check
+        if final_path.exists():
+
+            print(
+                f"[ERROR] Destination already exists: "
+                f"{final_path.name}"
+            )
+
+            shutil.rmtree(
+                temp_path,
+                ignore_errors=True
+            )
+
+            return False
 
     except Exception as e:
 
         print(
-            f"[ERROR] Could not move extracted data: {e}"
+            f"[ERROR] Could not determine "
+            f"final extraction path: {e}"
         )
 
-        shutil.rmtree(temp_path, ignore_errors=True)
+        shutil.rmtree(
+            temp_path,
+            ignore_errors=True
+        )
 
         return False
 
-    # --------------------------------
-    # Delete archive
-    # --------------------------------
+    # ==================================================
+    # MOVE EXTRACTED DATA
+    # ==================================================
+
+    try:
+
+        if len(items) == 1:
+
+            # Move the single extracted item
+            # out of the temporary directory.
+
+            extracted_item.rename(final_path)
+
+            # Temporary directory should now be empty.
+            temp_path.rmdir()
+
+        else:
+
+            # Multiple items:
+            # rename the entire temporary directory.
+
+            temp_path.rename(final_path)
+
+        print(
+            f"[MOVED] Extracted data -> "
+            f"{final_path.name}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"[ERROR] Could not move extracted data: "
+            f"{e}"
+        )
+
+        # Clean up temporary data
+        if temp_path.exists():
+
+            shutil.rmtree(
+                temp_path,
+                ignore_errors=True
+            )
+
+        return False
+
+    # ==================================================
+    # DELETE ARCHIVE
+    # ==================================================
 
     try:
 
@@ -466,42 +603,60 @@ def decompress_item(archive_path):
     except Exception as e:
 
         print(
-            f"[WARNING] Extraction succeeded, "
-            f"but archive could not be deleted:"
+            "[WARNING] Extraction succeeded, "
+            "but archive could not be deleted."
         )
 
         print(e)
 
+        # Extraction itself succeeded,
+        # so don't delete the extracted files.
+
+        return True
+
+    # ==================================================
+    # SUCCESS
+    # ==================================================
+
     print(
         f"[OK] Decompression completed: "
-        f"{output_path.name}"
+        f"{final_path.name}"
     )
 
     return True
 
 def verify_extraction(extracted_path):
-    """
-    Verify that the extracted result exists
-    and contains something.
-    """
 
     if not extracted_path.exists():
-        print(f"[ERROR] Extraction result does not exist: {extracted_path}")
+        print(
+            f"[ERROR] Extraction result does not exist: "
+            f"{extracted_path}"
+        )
         return False
 
-    if extracted_path.is_dir():
-        try:
-            next(extracted_path.iterdir())
-            return True
-        except StopIteration:
-            print(f"[ERROR] Extracted directory is empty: {extracted_path}")
-            return False
+    if not extracted_path.is_dir():
+        return False
 
-    # For a single extracted file
-    if extracted_path.is_file():
-        return extracted_path.stat().st_size > 0
+    try:
+        items = list(extracted_path.iterdir())
 
-    return False
+    except Exception as e:
+        print(f"[ERROR] Cannot inspect extraction: {e}")
+        return False
+
+    if not items:
+        print(
+            f"[ERROR] Extraction directory is empty: "
+            f"{extracted_path}"
+        )
+        return False
+
+    print(
+        f"[VERIFIED] Extracted {len(items)} "
+        f"top-level item(s)"
+    )
+
+    return True
 
 # =====================
 # =============================
