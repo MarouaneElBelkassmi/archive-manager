@@ -189,10 +189,6 @@ class ArchiveHandler(FileSystemEventHandler):
 
     def on_created(self, event):
 
-        path = Path(event.src_path)
-
-        print(f"[EVENT] Created: {path}")
-
         self.handle_event(event)
 
     def on_modified(self, event):
@@ -203,9 +199,6 @@ class ArchiveHandler(FileSystemEventHandler):
 
         path = Path(event.dest_path)
 
-        print(f"[EVENT] Moved: {path}")
-
-        # Create a fake event-like object for handling.
         class TempEvent:
             src_path = str(path)
             is_directory = event.is_directory
