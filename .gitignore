@@ -22,6 +22,7 @@ ToDecompress/*
 
 # Logs
 *.log
+logs/
 
 # Archives created during testing
 *.7z

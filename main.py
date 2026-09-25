@@ -4,6 +4,7 @@ import queue
 from pathlib import Path
 import subprocess
 import shutil
+import logging
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -21,6 +22,29 @@ TO_DECOMPRESS = BASE_DIR / "ToDecompress"
 # Number of seconds without activity before processing
 QUIET_PERIOD = 5
 
+# ==================================================
+# LOGGING
+# ==================================================
+
+LOG_DIR = BASE_DIR / "logs"
+
+LOG_DIR.mkdir(exist_ok=True)
+
+LOG_FILE = LOG_DIR / "archive_manager.log"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.FileHandler(
+            LOG_FILE,
+            encoding="utf-8"
+        ),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger("ArchiveManager")
 # ==================================================
 # 7-ZIP CONFIGURATION
 # ==================================================
@@ -307,10 +331,14 @@ def compress_item(path):
     )
 
     if result.returncode != 0:
-        print(f"[ERROR] Compression failed: {result.stderr}")
+        logger.error(
+            f"Compression failed: {path.name} | {result.stderr}")
         return False
 
-    print(f"[COMPRESSED] {path.name} -> {archive_path.name}")
+    logger.info(
+        f"Compression successful: "
+        f"{path.name} -> {archive_path.name}"
+    )
 
     # ==============================
     # VERIFY ARCHIVE
@@ -336,7 +364,9 @@ def compress_item(path):
         else:
             path.unlink()
 
-        print(f"[DELETED] Original removed: {path.name}")
+        logger.info(
+            f"Original deleted: {path.name}"
+        )
         return True
 
     except Exception as e:
@@ -363,7 +393,9 @@ def verify_archive(archive_path):
     )
 
     if result.returncode == 0:
-        print(f"[VERIFIED] Archive is valid: {archive_path.name}")
+        logger.info(
+            f"Archive verified: {archive_path.name}"
+        )
         return True
 
     print(f"[ERROR] Archive verification failed: {archive_path.name}")
@@ -380,9 +412,8 @@ def decompress_item(archive_path):
     # ==================================================
 
     if not is_archive(archive_path):
-        print(
-            f"[INFO] Not a supported archive: "
-            f"{archive_path.name}"
+        logger.info(
+            f"Not a supported archive: {archive_path.name}"
         )
         return False
 
@@ -392,12 +423,10 @@ def decompress_item(archive_path):
 
     output_path = archive_path.parent / archive_path.stem
 
-    # Don't overwrite an existing folder/file
     if output_path.exists():
 
-        print(
-            f"[INFO] Output already exists: "
-            f"{output_path.name}"
+        logger.info(
+            f"Output already exists: {output_path.name}"
         )
 
         return False
@@ -414,9 +443,8 @@ def decompress_item(archive_path):
         "-y"
     ]
 
-    print(
-        f"\n[DECOMPRESS] "
-        f"{archive_path.name}"
+    logger.info(
+        f"Decompression started: {archive_path.name}"
     )
 
     result = subprocess.run(
@@ -432,20 +460,20 @@ def decompress_item(archive_path):
 
     if result.returncode != 0:
 
-        print(
-            f"[ERROR] Decompression failed: "
+        logger.error(
+            f"Decompression failed: "
             f"{archive_path.name}"
         )
 
         if result.stderr:
-            print(result.stderr)
+            logger.error(result.stderr)
 
         # Remove incomplete extraction
         if output_path.exists():
 
-            print(
-                f"[CLEANUP] Removing incomplete "
-                f"extraction: {output_path.name}"
+            logger.warning(
+                f"Removing incomplete extraction: "
+                f"{output_path.name}"
             )
 
             shutil.rmtree(
@@ -455,9 +483,8 @@ def decompress_item(archive_path):
 
         return False
 
-    print(
-        f"[EXTRACTED] "
-        f"{archive_path.name}"
+    logger.info(
+        f"Extraction completed: {archive_path.name}"
     )
 
     # ==================================================
@@ -466,13 +493,14 @@ def decompress_item(archive_path):
 
     if not verify_extraction(output_path):
 
-        print(
-            "[ERROR] Extraction verification failed."
+        logger.error(
+            f"Extraction verification failed: "
+            f"{output_path.name}"
         )
 
-        print(
-            "[WARNING] Keeping archive because "
-            "verification failed."
+        logger.warning(
+            f"Keeping archive because verification "
+            f"failed: {archive_path.name}"
         )
 
         # Remove incomplete extraction
@@ -485,10 +513,8 @@ def decompress_item(archive_path):
 
         return False
 
-    print(
-        f"[VERIFIED] "
-        f"Extraction looks valid: "
-        f"{output_path.name}"
+    logger.info(
+        f"Extraction verified: {output_path.name}"
     )
 
     # ==================================================
@@ -499,36 +525,80 @@ def decompress_item(archive_path):
 
         archive_path.unlink()
 
-        print(
-            f"[DELETED] Archive removed: "
-            f"{archive_path.name}"
+        logger.info(
+            f"Archive deleted: {archive_path.name}"
         )
 
     except Exception as e:
 
-        print(
-            "[WARNING] Extraction succeeded, "
-            "but archive could not be deleted."
+        logger.warning(
+            f"Extraction succeeded, but archive "
+            f"could not be deleted: {archive_path.name}"
         )
 
-        print(e)
+        logger.error(str(e))
 
         # IMPORTANT:
-        # Don't delete the extracted game.
+        # Don't delete the extracted files.
+
         return True
 
     # ==================================================
     # SUCCESS
     # ==================================================
 
-    print(
-        f"[OK] Decompression completed: "
+    logger.info(
+        f"Decompression completed successfully: "
         f"{output_path.name}"
     )
 
     return True
 def verify_extraction(extracted_path):
 
+    if not extracted_path.exists():
+
+        logger.error(
+            f"Extraction result does not exist: "
+            f"{extracted_path}"
+        )
+
+        return False
+
+    if not extracted_path.is_dir():
+
+        logger.error(
+            f"Extraction result is not a directory: "
+            f"{extracted_path}"
+        )
+
+        return False
+
+    try:
+
+        items = list(extracted_path.iterdir())
+
+    except Exception as e:
+
+        logger.error(
+            f"Cannot inspect extraction: {e}"
+        )
+
+        return False
+
+    if not items:
+
+        logger.error(
+            f"Extraction directory is empty: "
+            f"{extracted_path}"
+        )
+
+        return False
+
+    logger.info(
+        f"Extracted {len(items)} top-level item(s)"
+    )
+
+    return True
     if not extracted_path.exists():
         print(
             f"[ERROR] Extraction result does not exist: "
@@ -617,6 +687,10 @@ worker_thread.start()
 print("====================================")
 print("      Archive Manager Started")
 print("====================================")
+logger.info("Archive Manager started")
+logger.info(f"Watching: {TO_COMPRESS}")
+logger.info(f"Watching: {TO_DECOMPRESS}")
+logger.info(f"Quiet period: {QUIET_PERIOD} seconds")
 
 print(f"Watching: {TO_COMPRESS}")
 print(f"Watching: {TO_DECOMPRESS}")
