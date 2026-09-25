@@ -387,47 +387,44 @@ def decompress_item(archive_path):
     # ==================================================
 
     if not is_archive(archive_path):
-        print(f"[INFO] Not a supported archive: {archive_path.name}")
+        print(
+            f"[INFO] Not a supported archive: "
+            f"{archive_path.name}"
+        )
         return False
 
     # ==================================================
-    # PATHS
+    # FINAL OUTPUT PATH
     # ==================================================
 
     output_path = archive_path.parent / archive_path.stem
 
-    # Temporary extraction directory
-    temp_path = archive_path.parent / f".{archive_path.stem}_extracting"
-
-    # Don't overwrite an existing destination
+    # Don't overwrite an existing folder/file
     if output_path.exists():
+
         print(
             f"[INFO] Output already exists: "
             f"{output_path.name}"
         )
-        return False
 
-    # Don't start if an old temporary directory exists
-    if temp_path.exists():
-        print(
-            f"[INFO] Temporary directory already exists: "
-            f"{temp_path.name}"
-        )
         return False
 
     # ==================================================
-    # EXTRACT
+    # DECOMPRESS
     # ==================================================
 
     command = [
         str(SEVEN_ZIP),
         "x",
         str(archive_path),
-        f"-o{temp_path}",
+        f"-o{output_path}",
         "-y"
     ]
 
-    print(f"\n[DECOMPRESS] {archive_path.name}")
+    print(
+        f"\n[DECOMPRESS] "
+        f"{archive_path.name}"
+    )
 
     result = subprocess.run(
         command,
@@ -437,7 +434,7 @@ def decompress_item(archive_path):
     )
 
     # ==================================================
-    # CHECK EXTRACTION RESULT
+    # CHECK 7-ZIP RESULT
     # ==================================================
 
     if result.returncode != 0:
@@ -451,141 +448,55 @@ def decompress_item(archive_path):
             print(result.stderr)
 
         # Remove incomplete extraction
-        if temp_path.exists():
+        if output_path.exists():
+
+            print(
+                f"[CLEANUP] Removing incomplete "
+                f"extraction: {output_path.name}"
+            )
+
             shutil.rmtree(
-                temp_path,
+                output_path,
                 ignore_errors=True
             )
 
         return False
 
-    print("[EXTRACTED] Temporary extraction completed")
+    print(
+        f"[EXTRACTED] "
+        f"{archive_path.name}"
+    )
 
     # ==================================================
     # VERIFY EXTRACTION
     # ==================================================
 
-    if not verify_extraction(temp_path):
+    if not verify_extraction(output_path):
 
         print(
             "[ERROR] Extraction verification failed."
         )
 
-        shutil.rmtree(
-            temp_path,
-            ignore_errors=True
+        print(
+            "[WARNING] Keeping archive because "
+            "verification failed."
         )
 
-        return False
-
-    print("[VERIFIED] Extraction looks valid")
-
-    # ==================================================
-    # DETERMINE FINAL PATH
-    # ==================================================
-
-    try:
-
-        items = list(temp_path.iterdir())
-
-        if len(items) == 1:
-
-            # Example:
-            #
-            # .MyGame_extracting/
-            #     MyGame/
-            #
-            # becomes:
-            #
-            # ToDecompress/
-            #     MyGame/
-
-            extracted_item = items[0]
-
-            final_path = archive_path.parent / extracted_item.name
-
-        else:
-
-            # Multiple top-level items
-            #
-            # Keep them together inside a folder
-            # named after the archive.
-
-            final_path = output_path
-
-        # Safety check
-        if final_path.exists():
-
-            print(
-                f"[ERROR] Destination already exists: "
-                f"{final_path.name}"
-            )
+        # Remove incomplete extraction
+        if output_path.exists():
 
             shutil.rmtree(
-                temp_path,
-                ignore_errors=True
-            )
-
-            return False
-
-    except Exception as e:
-
-        print(
-            f"[ERROR] Could not determine "
-            f"final extraction path: {e}"
-        )
-
-        shutil.rmtree(
-            temp_path,
-            ignore_errors=True
-        )
-
-        return False
-
-    # ==================================================
-    # MOVE EXTRACTED DATA
-    # ==================================================
-
-    try:
-
-        if len(items) == 1:
-
-            # Move the single extracted item
-            # out of the temporary directory.
-
-            extracted_item.rename(final_path)
-
-            # Temporary directory should now be empty.
-            temp_path.rmdir()
-
-        else:
-
-            # Multiple items:
-            # rename the entire temporary directory.
-
-            temp_path.rename(final_path)
-
-        print(
-            f"[MOVED] Extracted data -> "
-            f"{final_path.name}"
-        )
-
-    except Exception as e:
-
-        print(
-            f"[ERROR] Could not move extracted data: "
-            f"{e}"
-        )
-
-        # Clean up temporary data
-        if temp_path.exists():
-
-            shutil.rmtree(
-                temp_path,
+                output_path,
                 ignore_errors=True
             )
 
         return False
+
+    print(
+        f"[VERIFIED] "
+        f"Extraction looks valid: "
+        f"{output_path.name}"
+    )
 
     # ==================================================
     # DELETE ARCHIVE
@@ -609,9 +520,8 @@ def decompress_item(archive_path):
 
         print(e)
 
-        # Extraction itself succeeded,
-        # so don't delete the extracted files.
-
+        # IMPORTANT:
+        # Don't delete the extracted game.
         return True
 
     # ==================================================
@@ -620,11 +530,10 @@ def decompress_item(archive_path):
 
     print(
         f"[OK] Decompression completed: "
-        f"{final_path.name}"
+        f"{output_path.name}"
     )
 
     return True
-
 def verify_extraction(extracted_path):
 
     if not extracted_path.exists():
