@@ -111,6 +111,25 @@ def validate_config(config):
         raise ValueError(
             f"7-Zip executable not found: {seven_zip}"
         )
+def verify_seven_zip():
+
+    if not SEVEN_ZIP.exists():
+
+        logger.error(
+            f"7-Zip executable not found: {SEVEN_ZIP}"
+        )
+
+        return False
+
+    if not SEVEN_ZIP.is_file():
+
+        logger.error(
+            f"7-Zip path is not a file: {SEVEN_ZIP}"
+        )
+
+        return False
+
+    return True
 
 config = load_config()
 
@@ -122,6 +141,10 @@ except ValueError as e:
     print(
         f"ERROR: Invalid configuration: {e}"
     )
+
+    raise SystemExit(1)
+
+if not verify_seven_zip():
 
     raise SystemExit(1)
 
@@ -540,7 +563,14 @@ def processing_worker():
 
 # COMPRESSING FUNCTION
 def compress_item(path):
+    
+    if not path.exists():
 
+        logger.warning(
+            f"Source no longer exists: {path}"
+        )
+
+        return False
     # Never compress an archive
     if is_archive(path):
         print(f"[INFO] Skipping archive: {path.name}")
@@ -561,13 +591,32 @@ def compress_item(path):
         path.name
     ]
 
-    result = subprocess.run(
-        command,
-        cwd=path.parent,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
+    try:
+
+        result = subprocess.run(
+            command,
+            cwd=path.parent,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=60 * 60 * 6
+        )
+
+    except FileNotFoundError:
+
+        logger.error(
+            f"7-Zip executable not found: {SEVEN_ZIP}"
+        )
+
+        return False
+
+    except Exception:
+
+        logger.exception(
+            f"Unexpected compression error: {path.name}"
+        )
+
+        return False
 
     if result.returncode != 0:
         logger.error(
