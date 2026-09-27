@@ -87,7 +87,13 @@ TO_DECOMPRESS.mkdir(exist_ok=True)
 # ==================================================
 
 processing_queue = queue.Queue()
+# ==================================================
+# PROCESSING STATE
+# ==================================================
 
+queued_items = set()
+
+processing_items = set()
 
 # ==================================================
 # ACTIVITY TRACKING
@@ -133,6 +139,8 @@ def get_archive_contents(archive_path):
         return None
 
     return result.stdout
+
+
 def is_archive(path):
     return path.is_file() and path.suffix.lower() in ARCHIVE_EXTENSIONS
 
@@ -254,48 +262,110 @@ def activity_checker():
 
                 if elapsed >= QUIET_PERIOD:
 
-                    ready_items.append(path_string)
+                    path = Path(path_string)
 
+                    # Remove from activity tracking
                     del last_activity[path_string]
 
-        # ------------------------------------------
-        # Put ready items into queue
-        # ------------------------------------------
+                    # ==========================================
+                    # CHECK IF ALREADY QUEUED OR PROCESSING
+                    # ==========================================
 
-        for path_string in ready_items:
+                    if path_string in queued_items:
+                        continue
 
-            path = Path(path_string)
+                    if path_string in processing_items:
+                        continue
 
-            if path.exists():
+                    # ==========================================
+                    # CHECK THAT ITEM STILL EXISTS
+                    # ==========================================
 
-                print(
-                    f"\n[READY] {path.name} "
-                    f"has been quiet for {QUIET_PERIOD} seconds."
-                )
+                    if not path.exists():
+                        continue
 
-                processing_queue.put(path)
+                    # ==========================================
+                    # MARK AS QUEUED
+                    # ==========================================
+
+                    queued_items.add(path_string)
+
+                    ready_items.append(path)
+
+        # ==============================================
+        # ADD READY ITEMS TO QUEUE
+        # ==============================================
+
+        for path in ready_items:
+
+            print(
+                f"\n[READY] {path.name} "
+                f"has been quiet for {QUIET_PERIOD} seconds."
+            )
+
+            processing_queue.put(path)
 
         time.sleep(1)
-
 
 # ==================================================
 # PROCESSING WORKER
 # ==================================================
 
 def processing_worker():
+
     while True:
+
         path = processing_queue.get()
 
+        path_string = str(path)
+
+        # ==============================================
+        # MOVE FROM QUEUED → PROCESSING
+        # ==============================================
+
+        with activity_lock:
+
+            queued_items.discard(path_string)
+
+            processing_items.add(path_string)
+
         try:
-            print(f"\n[QUEUE] Processing: {path}")
+
+            print(
+                f"\n[QUEUE] Processing: {path}"
+            )
+
+            # ==========================================
+            # PROCESS
+            # ==========================================
 
             if path.parent == TO_COMPRESS:
+
                 compress_item(path)
 
             elif path.parent == TO_DECOMPRESS:
+
                 decompress_item(path)
 
+        except Exception as e:
+
+            print(
+                f"[ERROR] Unexpected processing error: "
+                f"{path.name}"
+            )
+
+            print(e)
+
         finally:
+
+            # ==========================================
+            # REMOVE FROM PROCESSING STATE
+            # ==========================================
+
+            with activity_lock:
+
+                processing_items.discard(path_string)
+
             processing_queue.task_done()
 
 
