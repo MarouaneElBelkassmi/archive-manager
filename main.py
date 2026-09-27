@@ -60,14 +60,76 @@ def load_config():
 
         raise SystemExit(1)
 
+def validate_config(config):
+
+    # ==================================================
+    # QUIET PERIOD
+    # ==================================================
+
+    quiet_period = config.get("quiet_period")
+
+    if not isinstance(quiet_period, (int, float)):
+        raise ValueError(
+            "quiet_period must be a number."
+        )
+
+    if quiet_period <= 0:
+        raise ValueError(
+            "quiet_period must be greater than 0."
+        )
+
+    # ==================================================
+    # COMPRESSION LEVEL
+    # ==================================================
+
+    compression_level = config.get("compression_level")
+
+    if not isinstance(compression_level, int):
+        raise ValueError(
+            "compression_level must be an integer."
+        )
+
+    if not 0 <= compression_level <= 9:
+        raise ValueError(
+            "compression_level must be between 0 and 9."
+        )
+
+    # ==================================================
+    # 7-ZIP PATH
+    # ==================================================
+
+    seven_zip_path = config.get("seven_zip_path")
+
+    if not seven_zip_path:
+        raise ValueError(
+            "seven_zip_path is required."
+        )
+
+    seven_zip = Path(seven_zip_path)
+
+    if not seven_zip.is_file():
+        raise ValueError(
+            f"7-Zip executable not found: {seven_zip}"
+        )
 
 config = load_config()
+
+try:
+    validate_config(config)
+
+except ValueError as e:
+
+    print(
+        f"ERROR: Invalid configuration: {e}"
+    )
+
+    raise SystemExit(1)
 
 TO_COMPRESS = BASE_DIR / "ToCompress"
 TO_DECOMPRESS = BASE_DIR / "ToDecompress"
 
 # Number of seconds without activity before processing
-QUIET_PERIOD = 5
+QUIET_PERIOD = config["quiet_period"]
 
 # ==================================================
 # LOGGING
@@ -96,7 +158,7 @@ logger = logging.getLogger("ArchiveManager")
 # 7-ZIP CONFIGURATION
 # ==================================================
 
-SEVEN_ZIP = Path(r"C:\Program Files\7-Zip\7z.exe")
+SEVEN_ZIP = Path(config["seven_zip_path"])
 
 # Compression level:
 #
@@ -107,7 +169,7 @@ SEVEN_ZIP = Path(r"C:\Program Files\7-Zip\7z.exe")
 # 7 = Maximum
 # 9 = Ultra
 #
-COMPRESSION_LEVEL = 5
+COMPRESSION_LEVEL = config["compression_level"]
 
 if not SEVEN_ZIP.exists():
 
