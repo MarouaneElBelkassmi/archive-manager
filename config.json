@@ -1,0 +1,5 @@
+{
+    "quiet_period": 5,
+    "compression_level": 5,
+    "seven_zip_path": "C:\\Program Files\\7-Zip\\7z.exe"
+}

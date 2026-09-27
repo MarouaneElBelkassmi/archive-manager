@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import shutil
 import logging
+import json
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -13,8 +14,54 @@ from watchdog.events import FileSystemEventHandler
 # ==================================================
 # CONFIGURATION
 # ==================================================
+# ==================================================
+# CONFIGURATION
+# ==================================================
 
 BASE_DIR = Path(__file__).parent
+
+CONFIG_FILE = BASE_DIR / "config.json"
+
+
+def load_config():
+
+    if not CONFIG_FILE.exists():
+
+        print(
+            f"ERROR: Configuration file not found: "
+            f"{CONFIG_FILE}"
+        )
+
+        raise SystemExit(1)
+
+    try:
+
+        with open(
+            CONFIG_FILE,
+            "r",
+            encoding="utf-8"
+        ) as file:
+
+            return json.load(file)
+
+    except json.JSONDecodeError as e:
+
+        print(
+            f"ERROR: Invalid config.json: {e}"
+        )
+
+        raise SystemExit(1)
+
+    except Exception as e:
+
+        print(
+            f"ERROR: Could not load configuration: {e}"
+        )
+
+        raise SystemExit(1)
+
+
+config = load_config()
 
 TO_COMPRESS = BASE_DIR / "ToCompress"
 TO_DECOMPRESS = BASE_DIR / "ToDecompress"
@@ -669,36 +716,7 @@ def verify_extraction(extracted_path):
     )
 
     return True
-    if not extracted_path.exists():
-        print(
-            f"[ERROR] Extraction result does not exist: "
-            f"{extracted_path}"
-        )
-        return False
-
-    if not extracted_path.is_dir():
-        return False
-
-    try:
-        items = list(extracted_path.iterdir())
-
-    except Exception as e:
-        print(f"[ERROR] Cannot inspect extraction: {e}")
-        return False
-
-    if not items:
-        print(
-            f"[ERROR] Extraction directory is empty: "
-            f"{extracted_path}"
-        )
-        return False
-
-    print(
-        f"[VERIFIED] Extracted {len(items)} "
-        f"top-level item(s)"
-    )
-
-    return True
+    
 
 # =====================
 # =============================
