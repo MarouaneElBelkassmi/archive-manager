@@ -253,6 +253,20 @@ def get_archive_contents(archive_path):
 def is_archive(path):
     return path.is_file() and path.suffix.lower() in ARCHIVE_EXTENSIONS
 
+def is_inside(path, directory):
+
+    try:
+
+        path.resolve().relative_to(
+            directory.resolve()
+        )
+
+        return True
+
+    except ValueError:
+
+        return False
+    
 
 def get_top_level_item(path, root):
     """
@@ -292,65 +306,109 @@ def get_top_level_item(path, root):
 class ArchiveHandler(FileSystemEventHandler):
 
     def handle_event(self, event):
-        path=Path(event.src_path)
 
-        if str(path).startswith(str(TO_COMPRESS)):
+        path = Path(event.src_path)
+
+        # Ignore root directories
+        if path == TO_COMPRESS or path == TO_DECOMPRESS:
+            return
+
+        # ==============================================
+        # ToCompress
+        # ==============================================
+
+        if is_inside(path, TO_COMPRESS):
+
             root = TO_COMPRESS
 
-            # Dont compress existing archives
-
+            # Never compress archives
             if is_archive(path):
                 return
-            
-            # To decompress
-        elif str(path).startswith(str(TO_DECOMPRESS)):
+
+        # ==============================================
+        # ToDecompress
+        # ==============================================
+
+        elif is_inside(path, TO_DECOMPRESS):
+
             root = TO_DECOMPRESS
-            # Only decompress archive files
+
+            # Only process archives
             if not is_archive(path):
                 return
+
         else:
             return
-        
-        top_level =  get_top_level_item(path, root)
-        
-        if top_level is None or top_level == root:
-            return
-        
-        #don't put archives from ToDecompress into the queue
 
-        if root == TO_DECOMPRESS and not is_archive(top_level):
+        # ==============================================
+        # FIND TOP-LEVEL ITEM
+        # ==============================================
+
+        top_level = get_top_level_item(path, root)
+
+        if top_level is None:
             return
-        
+
+        # ==============================================
+        # FINAL FILTERING
+        # ==============================================
+
+        if root == TO_COMPRESS:
+
+            if is_archive(top_level):
+                return
+
+        elif root == TO_DECOMPRESS:
+
+            if not is_archive(top_level):
+                return
+
+        # ==============================================
+        # RECORD ACTIVITY
+        # ==============================================
+
         with activity_lock:
+
             last_activity[str(top_level)] = time.time()
 
-
-
-    
+    # ==============================================
+    # CREATED
+    # ==============================================
 
     def on_created(self, event):
 
         self.handle_event(event)
 
+    # ==============================================
+    # MODIFIED
+    # ==============================================
+
     def on_modified(self, event):
 
         self.handle_event(event)
+
+    # ==============================================
+    # MOVED
+    # ==============================================
 
     def on_moved(self, event):
 
         path = Path(event.dest_path)
 
         class TempEvent:
+
             src_path = str(path)
             is_directory = event.is_directory
 
         self.handle_event(TempEvent())
 
+    # ==============================================
+    # DELETED
+    # ==============================================
+
     def on_deleted(self, event):
 
         self.handle_event(event)
-
-
 # ==================================================
 # ACTIVITY CHECKER
 # ==================================================
@@ -373,29 +431,19 @@ def activity_checker():
 
                     path = Path(path_string)
 
-                    # Remove from activity tracking
                     del last_activity[path_string]
 
-                    # ==========================================
-                    # CHECK IF ALREADY QUEUED OR PROCESSING
-                    # ==========================================
-
+                    # Already queued?
                     if path_string in queued_items:
                         continue
 
+                    # Already processing?
                     if path_string in processing_items:
                         continue
 
-                    # ==========================================
-                    # CHECK THAT ITEM STILL EXISTS
-                    # ==========================================
-
+                    # Item disappeared?
                     if not path.exists():
                         continue
-
-                    # ==========================================
-                    # MARK AS QUEUED
-                    # ==========================================
 
                     queued_items.add(path_string)
 
@@ -407,15 +455,13 @@ def activity_checker():
 
         for path in ready_items:
 
-            print(
-                f"\n[READY] {path.name} "
-                f"has been quiet for {QUIET_PERIOD} seconds."
+            logger.info(
+                f"Item ready for processing: {path.name}"
             )
 
             processing_queue.put(path)
 
         time.sleep(1)
-
 # ==================================================
 # PROCESSING WORKER
 # ==================================================
@@ -428,10 +474,6 @@ def processing_worker():
 
         path_string = str(path)
 
-        # ==============================================
-        # MOVE FROM QUEUED → PROCESSING
-        # ==============================================
-
         with activity_lock:
 
             queued_items.discard(path_string)
@@ -440,8 +482,8 @@ def processing_worker():
 
         try:
 
-            print(
-                f"\n[QUEUE] Processing: {path}"
+            logger.info(
+                f"Processing started: {path}"
             )
 
             # ==========================================
@@ -450,33 +492,51 @@ def processing_worker():
 
             if path.parent == TO_COMPRESS:
 
-                compress_item(path)
+                success = compress_item(path)
 
             elif path.parent == TO_DECOMPRESS:
 
-                decompress_item(path)
+                success = decompress_item(path)
 
-        except Exception as e:
+            else:
 
-            print(
-                f"[ERROR] Unexpected processing error: "
+                logger.warning(
+                    f"Unknown processing location: {path}"
+                )
+
+                success = False
+
+            # ==========================================
+            # RESULT
+            # ==========================================
+
+            if success:
+
+                logger.info(
+                    f"Processing completed: {path.name}"
+                )
+
+            else:
+
+                logger.warning(
+                    f"Processing failed or skipped: "
+                    f"{path.name}"
+                )
+
+        except Exception:
+
+            logger.exception(
+                f"Unexpected processing error: "
                 f"{path.name}"
             )
 
-            print(e)
-
         finally:
-
-            # ==========================================
-            # REMOVE FROM PROCESSING STATE
-            # ==========================================
 
             with activity_lock:
 
                 processing_items.discard(path_string)
 
             processing_queue.task_done()
-
 
 # COMPRESSING FUNCTION
 def compress_item(path):
