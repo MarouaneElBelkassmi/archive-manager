@@ -601,7 +601,14 @@ def compress_item(path):
             text=True,
             timeout=60 * 60 * 6
         )
+    except subprocess.TimeoutExpired:
 
+        logger.error(
+            f"Operation timed out: {path.name}"
+        )
+
+        return False
+    
     except FileNotFoundError:
 
         logger.error(
@@ -665,7 +672,10 @@ def compress_item(path):
         return False
 
 def verify_archive(archive_path):
-    print(f"[VERIFY] Checking archive: {archive_path.name}")
+
+    logger.info(
+        f"Verifying archive: {archive_path.name}"
+    )
 
     command = [
         str(SEVEN_ZIP),
@@ -673,26 +683,53 @@ def verify_archive(archive_path):
         str(archive_path),
     ]
 
-    result = subprocess.run(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    try:
+
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=60 * 60
+        )
+
+    except subprocess.TimeoutExpired:
+
+        logger.error(
+            f"Archive verification timed out: "
+            f"{archive_path.name}"
+        )
+
+        return False
+
+    except Exception:
+
+        logger.exception(
+            f"Unexpected archive verification error: "
+            f"{archive_path.name}"
+        )
+
+        return False
 
     if result.returncode == 0:
+
         logger.info(
-            f"Archive verified: {archive_path.name}"
+            f"Archive verified successfully: "
+            f"{archive_path.name}"
         )
+
         return True
 
-    print(f"[ERROR] Archive verification failed: {archive_path.name}")
+    logger.error(
+        f"Archive verification failed: "
+        f"{archive_path.name}"
+    )
 
     if result.stderr:
-        print(result.stderr)
+
+        logger.error(result.stderr)
 
     return False
-
 def decompress_item(archive_path):
 
     # ==================================================
@@ -843,6 +880,10 @@ def decompress_item(archive_path):
     return True
 def verify_extraction(extracted_path):
 
+    # ==================================================
+    # CHECK EXISTENCE
+    # ==================================================
+
     if not extracted_path.exists():
 
         logger.error(
@@ -852,6 +893,10 @@ def verify_extraction(extracted_path):
 
         return False
 
+    # ==================================================
+    # CHECK DIRECTORY
+    # ==================================================
+
     if not extracted_path.is_dir():
 
         logger.error(
@@ -860,6 +905,10 @@ def verify_extraction(extracted_path):
         )
 
         return False
+
+    # ==================================================
+    # INSPECT CONTENTS
+    # ==================================================
 
     try:
 
@@ -873,6 +922,10 @@ def verify_extraction(extracted_path):
 
         return False
 
+    # ==================================================
+    # CHECK EMPTY DIRECTORY
+    # ==================================================
+
     if not items:
 
         logger.error(
@@ -882,13 +935,57 @@ def verify_extraction(extracted_path):
 
         return False
 
+    # ==================================================
+    # COUNT FILES AND DIRECTORIES
+    # ==================================================
+
+    file_count = 0
+    directory_count = 0
+
+    try:
+
+        for item in extracted_path.rglob("*"):
+
+            if item.is_file():
+
+                file_count += 1
+
+            elif item.is_dir():
+
+                directory_count += 1
+
+    except Exception as e:
+
+        logger.error(
+            f"Cannot inspect extracted contents: {e}"
+        )
+
+        return False
+
+    # ==================================================
+    # LOG RESULT
+    # ==================================================
+
     logger.info(
-        f"Extracted {len(items)} top-level item(s)"
+        f"Extraction verified: "
+        f"{file_count} file(s), "
+        f"{directory_count} directorie(s)"
     )
 
-    return True
-    
+    # ==================================================
+    # FINAL CHECK
+    # ==================================================
 
+    if file_count == 0 and directory_count == 0:
+
+        logger.error(
+            f"Extraction contains no usable content: "
+            f"{extracted_path}"
+        )
+
+        return False
+
+    return True
 # =====================
 # =============================
 # START WATCHER
