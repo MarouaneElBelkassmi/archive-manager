@@ -14,9 +14,6 @@ from watchdog.events import FileSystemEventHandler
 # ==================================================
 # CONFIGURATION
 # ==================================================
-# ==================================================
-# CONFIGURATION
-# ==================================================
 
 BASE_DIR = Path(__file__).parent
 
@@ -60,6 +57,7 @@ def load_config():
 
         raise SystemExit(1)
 
+
 def validate_config(config):
 
     # ==================================================
@@ -69,11 +67,13 @@ def validate_config(config):
     quiet_period = config.get("quiet_period")
 
     if not isinstance(quiet_period, (int, float)):
+
         raise ValueError(
             "quiet_period must be a number."
         )
 
     if quiet_period <= 0:
+
         raise ValueError(
             "quiet_period must be greater than 0."
         )
@@ -82,14 +82,18 @@ def validate_config(config):
     # COMPRESSION LEVEL
     # ==================================================
 
-    compression_level = config.get("compression_level")
+    compression_level = config.get(
+        "compression_level"
+    )
 
     if not isinstance(compression_level, int):
+
         raise ValueError(
             "compression_level must be an integer."
         )
 
     if not 0 <= compression_level <= 9:
+
         raise ValueError(
             "compression_level must be between 0 and 9."
         )
@@ -98,25 +102,34 @@ def validate_config(config):
     # 7-ZIP PATH
     # ==================================================
 
-    seven_zip_path = config.get("seven_zip_path")
+    seven_zip_path = config.get(
+        "seven_zip_path"
+    )
 
     if not seven_zip_path:
+
         raise ValueError(
             "seven_zip_path is required."
         )
 
-    seven_zip = Path(seven_zip_path)
+    seven_zip = Path(
+        seven_zip_path
+    )
 
     if not seven_zip.is_file():
+
         raise ValueError(
             f"7-Zip executable not found: {seven_zip}"
         )
+
+
 def verify_seven_zip():
 
     if not SEVEN_ZIP.exists():
 
         logger.error(
-            f"7-Zip executable not found: {SEVEN_ZIP}"
+            f"7-Zip executable not found: "
+            f"{SEVEN_ZIP}"
         )
 
         return False
@@ -124,16 +137,24 @@ def verify_seven_zip():
     if not SEVEN_ZIP.is_file():
 
         logger.error(
-            f"7-Zip path is not a file: {SEVEN_ZIP}"
+            f"7-Zip path is not a file: "
+            f"{SEVEN_ZIP}"
         )
 
         return False
 
     return True
 
+
+# ==================================================
+# LOAD CONFIGURATION
+# ==================================================
+
 config = load_config()
 
+
 try:
+
     validate_config(config)
 
 except ValueError as e:
@@ -144,15 +165,22 @@ except ValueError as e:
 
     raise SystemExit(1)
 
-if not verify_seven_zip():
 
-    raise SystemExit(1)
+# ==================================================
+# CREATE CONFIGURATION VARIABLES
+# ==================================================
+
+QUIET_PERIOD = config["quiet_period"]
+
+COMPRESSION_LEVEL = config["compression_level"]
+
+SEVEN_ZIP = Path(
+    config["seven_zip_path"]
+)
 
 TO_COMPRESS = BASE_DIR / "ToCompress"
-TO_DECOMPRESS = BASE_DIR / "ToDecompress"
 
-# Number of seconds without activity before processing
-QUIET_PERIOD = config["quiet_period"]
+TO_DECOMPRESS = BASE_DIR / "ToDecompress"
 
 # ==================================================
 # LOGGING
